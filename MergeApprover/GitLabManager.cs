@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using MergeApprover.Models;
 using RestSharp;
@@ -56,9 +57,36 @@ namespace MergeApprover
             var mergeRequests = this.ListMergeRequests();
             foreach (var req in mergeRequests)
             {
-                if (_options.AutoApprovedRequests.Any(b => b.Source == req.Source_Branch && b.Destination == req.Target_Branch))
+                var wildcardDestinations = _options.AutoApprovedRequests.Where(b => b.Source.Contains("*") || b.Destination.Contains("*"));
+                var normalDestinations = _options.AutoApprovedRequests.Where(b => !b.Source.Contains("*") && !b.Destination.Contains("*"));
+
+                //
+                // STEP 1: Standard non-wildcard branch matching
+                //
+                if (normalDestinations.Any(b => b.Source == req.Source_Branch && b.Destination == req.Target_Branch))
                 {
                     this.ApproveMergeRequest(req);
+                } else if (wildcardDestinations.Any()) {
+                    //
+                    // STEP 2: Wilcard branch matching (useful for cherry picks)
+                    //
+                    foreach (var wc in wildcardDestinations)
+                    {
+                        var source = wc.Source.Replace("*", String.Empty);
+                        var destination = wc.Destination.Replace("*", String.Empty);
+
+                        //
+                        // First we're going to check and see our config has a source branch with a wildcard
+                        // flag. If it does, then we'll do a .Contains() check on that branch to see if there's a
+                        // match. If not, we'll check the destination branch and compare those.
+                        //
+                        if (wc.Source.Contains("*") && req.Source_Branch.Contains(source) && wc.Destination == req.Target_Branch) {
+                            this.ApproveMergeRequest(req);
+                        } else if (wc.Destination.Contains("*") && req.Target_Branch.Contains(destination) && wc.Source == req.Source_Branch)
+                        {
+                            this.ApproveMergeRequest(req);
+                        }
+                    }
                 }
             }
         }
